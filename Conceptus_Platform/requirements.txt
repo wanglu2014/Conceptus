@@ -1,0 +1,19 @@
+# Conceptus Pro Backend Dependencies
+fastapi>=0.100.0
+uvicorn[standard]>=0.20.0
+pydantic>=2.0.0
+python-multipart>=0.0.6
+python-dotenv>=1.0.0
+
+# Authentication
+sqlalchemy>=2.0.0
+python-jose[cryptography]>=3.3.0
+passlib[bcrypt]>=1.7.4
+
+# AI and Data Processing
+openai>=1.0.0
+httpx>=0.25.0
+pandas>=2.0.0
+numpy>=1.24.0
+networkx>=3.0
+aiofiles>=23.0.0
