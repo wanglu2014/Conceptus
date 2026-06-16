@@ -1,0 +1,206 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Ctrl+Shift+Enter*. 
+
+```{r}
+# 安装 CRAN 版的 {renv}
+install.packages("renv")
+
+# 初始化环境
+renv::init()
+
+renv::snapshot()
+```
+
+
+```{r}
+install.packages("rmarkdown")
+
+# 虽然也可以使用 usethis::use_readme_md()，看个人需求（不详细讲解区别）
+usethis::use_readme_rmd()
+```
+
+```{r}
+# 安装 CRAN 版的 {renv}
+install.packages("renv")
+
+# 初始化 renv 环境
+renv::init()
+
+# 安装所需包
+install.packages(c("data.table", "dplyr", "igraph", "reshape2", "stringr", "tidyr", "tidyverse", "usethis", "rmarkdown"))
+
+# 加载所需包
+library(data.table)
+library(dplyr)
+library(igraph)
+library(reshape2)
+library(stringr)
+library(tidyr)
+library(tidyverse)
+library(usethis)
+library(rmarkdown)
+
+# 创建 README.Rmd 文件
+usethis::use_readme_rmd()
+
+# 保存项目依赖关系快照
+renv::snapshot()
+
+```
+
+```{r}
+library(shiny)
+library(SSNR)
+
+# 定义 UI
+ui <- fluidPage(
+  titlePanel("SSNR Shiny App"),
+  sidebarLayout(
+    sidebarPanel(
+      fileInput("file1", "Choose .Rdata File", accept = c(".Rdata")),
+      textInput("mypath", "Path", value = "E:/test/"),
+      textInput("phylo_list", "Phylo List", value = 'aphy_test_resp.Rdata'),
+      textInput("graph", "Graph Parameter", value = "graph"),
+      actionButton("generate", "Generate SSN"),
+      actionButton("extract", "Extract Attributes")
+    ),
+    mainPanel(
+      tableOutput("contents"),
+      tableOutput("attributes")
+    )
+  )
+)
+
+# 定义服务器逻辑
+server <- function(input, output) {
+  observeEvent(input$generate, {
+    req(input$file1)
+    load(input$file1$datapath)
+    phylo_list <- strsplit(input$phylo_list, ",")[[1]]
+    generatSSN(input$mypath, phylo_list)
+    
+    # 动态生成的输出文件名
+    phylotxt <- tools::file_path_sans_ext(basename(input$phylo_list))
+    output_file <- paste0(input$mypath, phylotxt, "_comselSSN.csv")
+    
+    output$contents <- renderTable({
+      data <- read.csv(output_file)
+      head(data)
+    })
+  })
+  
+  observeEvent(input$extract, {
+    req(input$file1)
+    load(input$file1$datapath)
+    g <- get(input$graph)
+    attributes <- extr_netattr(g)
+    
+    # 动态生成的输出文件名
+    phylotxt <- tools::file_path_sans_ext(basename(input$phylo_list))
+    output_attr_file <- paste0(input$mypath, phylotxt, "_type_attrtable_metaSSN.csv")
+    
+    output$attributes <- renderTable({
+      attributes
+    })
+  })
+}
+
+# 运行应用
+shinyApp(ui, server)
+
+```
+
+```{r}
+library(shiny)
+library(SSNR)
+library(readxl)
+library(ggplot2)
+
+# 定义 UI
+ui <- fluidPage(
+  titlePanel("SSNR Shiny App"),
+  sidebarLayout(
+    sidebarPanel(
+      fileInput("file1", "Choose .Rdata File", accept = c(".Rdata")),
+      textInput("mypath", "Path", value = "E:/test/"),
+      textInput("phylo_list", "Phylo List", value = 'aphy_test_resp.Rdata'),
+      textInput("graph", "Graph Parameter", value = "graph"),
+      actionButton("generate", "Generate SSN"),
+      actionButton("extract", "Extract Attributes"),
+      hr(),
+      fileInput("excel_file", "Choose Excel File", accept = c(".xlsx", ".xls")),
+      uiOutput("sheet_selector"),
+      actionButton("plot", "Plot Data")
+    ),
+    mainPanel(
+      tableOutput("contents"),
+      tableOutput("attributes"),
+      plotOutput("barplot")
+    )
+  )
+)
+
+# 定义服务器逻辑
+server <- function(input, output, session) {
+  observeEvent(input$generate, {
+    req(input$file1)
+    load(input$file1$datapath)
+    phylo_list <- strsplit(input$phylo_list, ",")[[1]]
+    generatSSN(input$mypath, phylo_list)
+    
+    # 动态生成的输出文件名
+    phylotxt <- tools::file_path_sans_ext(basename(input$phylo_list))
+    output_file <- paste0(input$mypath, phylotxt, "_comselSSN.csv")
+    
+    output$contents <- renderTable({
+      data <- read.csv(output_file)
+      head(data)
+    })
+  })
+  
+  observeEvent(input$extract, {
+    req(input$file1)
+    load(input$file1$datapath)
+    g <- get(input$graph)
+    attributes <- extr_netattr(g)
+    
+    output$attributes <- renderTable({
+      attributes
+    })
+  })
+
+  observe({
+    req(input$excel_file)
+    sheets <- excel_sheets(input$excel_file$datapath)
+    updateSelectInput(session, "sheet", "Select Sheet", choices = sheets)
+  })
+
+  output$sheet_selector <- renderUI({
+    req(input$excel_file)
+    selectInput("sheet", "Select Sheet", choices = NULL)
+  })
+
+  observeEvent(input$plot, {
+    req(input$excel_file, input$sheet)
+    data <- read_excel(input$excel_file$datapath, sheet = input$sheet)
+    data <- data[order(data$importance, decreasing = TRUE), ]
+    
+    output$barplot <- renderPlot({
+      ggplot(data, aes(x = reorder(Feat, -importance), y = importance)) +
+        geom_bar(stat = "identity") +
+        coord_flip() +
+        labs(title = "Feature Importance", x = "Feature", y = "Importance")
+    })
+  })
+}
+
+# 运行应用
+shinyApp(ui, server)
+```
+

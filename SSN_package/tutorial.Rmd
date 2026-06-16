@@ -1,0 +1,178 @@
+---
+title: "R Notebook"
+output: html_notebook
+---
+```{r}
+
+# 设置工作目录为包的根目录
+setwd("E:/Onedrive/labChenc/imeta/SSN_package/")
+
+# 生成文档和更新 NAMESPACE 文件
+roxygen2::roxygenise()
+
+library(devtools)
+document()
+build()
+install()
+
+# 加载 phyloseq package
+library(phyloseq)
+
+# 加载 .rdata 文件
+load("E:/Onedrive/labChenc/imeta/SSN_package/tutorial_data/aphy_SRP135559_resp_with_tax.rdata")
+
+# 假设加载的 phyloseq 对象名称为 phy
+# 提取 abundance 数据
+abundance_data <- as.data.frame(otu_table(ps.ng.tax))
+
+# 提取 meta 数据
+meta_data <- as.data.frame(as.matrix(sample_data(ps.ng.tax)))
+
+# 保存 abundance 数据到 CSV
+write.csv(abundance_data, "E:/Onedrive/labChenc/imeta/SSN_package/tutorial_data/abundance.csv", row.names = TRUE)
+
+# 保存 meta 数据到 CSV
+write.csv(meta_data, "E:/Onedrive/labChenc/imeta/SSN_package/tutorial_data/meta.csv", row.names = TRUE)
+
+```
+
+#processing for a phyloseq object
+```{r}
+# Load necessary libraries
+library(phyloseq)
+library(data.table)
+
+# Define the file paths
+abundance_file <- "C:/Users/Administrator/Desktop/2/SSN/tutorial_data/abundance.csv"
+metadata_file <- "C:/Users/Administrator/Desktop/2/SSN/tutorial_data/meta.csv"
+
+# Read in the abundance data
+abundance_data <- fread(abundance_file, data.table = FALSE)
+rownames(abundance_data) <- abundance_data[[1]]
+abundance_data <- abundance_data[, -1]
+
+# Convert abundance data to matrix
+otu_matrix <- as.matrix(abundance_data)
+
+# Create OTU Table
+otu_table_ps <- otu_table(otu_matrix, taxa_are_rows = TRUE)
+
+# Read in the metadata
+metadata <- fread(metadata_file, data.table = FALSE)
+rownames(metadata) <- metadata[[1]]
+metadata <- metadata[, -1]
+
+# Create Sample Data
+sample_data_ps <- sample_data(metadata)
+
+# Create the phyloseq object
+ps.ng.tax <- phyloseq(otu_table_ps, sample_data_ps)
+
+# Save the phyloseq object
+save(ps.ng.tax, file = "C:/Users/Administrator/Desktop/2/SSN/tutorial_data/aphy_SRP135559_resp_with_tax.Rdata")
+```
+
+
+```{r}
+library(devtools)
+#install.packages("BiocManager")
+#BiocManager::install("fantaxtic")
+#devtools::install_local("C:/Users/Administrator/Desktop/2/SSN.zip")
+library(devtools)
+#if(!"devtools" %in% installed.packages()){
+#  install.packages("devtools")
+#}
+#devtools::install_github("gmteunisse/fantaxtic")
+#BiocManager::install("microbiome")
+library(microbiome)
+#install.packages("matrixStats")
+#devtools::install_github("zdk123/SpiecEasi")
+library(SpiecEasi)
+
+# Define the data path
+datapath <- 'E:/Onedrive/labChenc/imeta/SSN_package/tutorial_data/'
+# Create the phyloseq object
+ps.ng.tax <- create_phyloseq_object(
+  abundance_file = paste0(datapath, "abundance.csv"),
+  metadata_file = paste0(datapath, "meta.csv"),
+  output_file = paste0(datapath, "aphy_SRP135559_resp_with_tax.rdata")
+)
+
+# Generate sample-specific abundance data
+generate_samplespecificabundance(
+  mypath = datapath,
+  phylo_name = "aphy_SRP135559_resp_with_tax.rdata",
+  nnum = 300,
+  thresholdi = 0.4
+)
+
+# Generate edge lists
+abundance_files <- list.files(
+  path = datapath,
+  pattern = "_singletypein.txt$",
+  full.names = TRUE
+)
+
+for (abundance_file in abundance_files) {
+  edge_list <- Generate_edgelist(
+    filename = abundance_file,
+    bootstraps = 1000,
+    p_value_threshold = 0.05
+  )
+  output_edge_file <- sub("_singletypein.txt$", "_edgelist.csv", abundance_file)
+  write.csv(edge_list, file = output_edge_file, row.names = FALSE)
+}
+
+# Generate sample-specific networks
+generate_SSN(
+  mypath = datapath,
+  phylo_list = "aphy_SRP135559_resp_with_tax.rdata"
+)
+
+# Extract node degrees
+extr_degree(
+  mypath = datapath,
+  rdata_path = datapath,
+  output_path = datapath
+)
+
+# Extract network attributes
+extr_netattr(
+  mypath = datapath,
+  phylo_list ="aphy_SRP135559_resp_with_tax.rdata"
+)
+
+
+
+```
+
+
+```{r}
+load("H:/Imeta/rep/aphy_ERP013257_resp_with_tax.rdata")
+metas=microbiome::meta(ps.ng.tax)
+metas$donorIDnew=ifelse(metas$donorID=='Control',metas$donorID,'NA')
+metas$type=paste0(metas$type,'_',metas$donorIDnew)
+table(metas$type)
+save(ps.ng.tax,file="H:/Imeta/rep/aphy_ERP013257_resp_with_tax.rdata") 
+```
+
+```{r}
+load("G:/phylo_dataset/solidbase/0828/phy_protect_resp.Rdata")
+ori_phy=ps.ng.tax
+ori_meta=microbiome::meta(ori_phy)
+load("G:/phylo_dataset/Gordon/newresp/aphy_protectinit_resp.Rdata")
+meta_own=microbiome::meta(ps.ng.tax)
+meta_chen=read.csv("E:/Onedrive/labChenc/imeta/0920/aphy_0913/aphy_protect_resp_with_tax.r_metadata.csv")
+
+meta_chen<- read_excel("H:/Imeta/rep/history/sup protect(1).xlsx")
+#colnames(meta_chen)
+rownames(meta_chen)=meta_chen$GID
+
+meta_chen$type=paste0(meta_chen$INITIAL_TRT_C4,'_',meta_chen$collectionWeek,'_',meta_chen$sampleType)
+samplet=sample_data(meta_chen)
+sample_names(samplet)=rownames(meta_chen)
+new_phylo=phyloseq(otu_table(otu_table(ps.ng.tax)),samplet)
+ps.ng.tax=new_phylo
+save(ps.ng.tax,file="H:/Imeta/rep/aphy_protect_resp_with_tax.rdata") 
+```
+

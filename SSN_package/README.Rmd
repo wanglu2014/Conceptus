@@ -1,0 +1,380 @@
+---
+output: github_document
+---
+
+<!-- README.md is generated from README.Rmd. Please edit that file -->
+
+```{r, include = FALSE}
+knitr::opts_chunk$set(
+  collapse = TRUE,
+  comment = "#>",
+  fig.path = "man/figures/README-",
+  out.width = "100%"
+)
+```
+
+
+# SSN
+
+<!-- badges: start -->
+<!-- badges: end -->
+
+The goal of SSN (Sample-Specific Network) is to construct and analyze sample-specific microbial co-occurrence networks.
+
+## Installation
+
+You can install the development version of SSN like so:
+
+``` r
+devtools::install_local("path/to/SSN_package")
+```
+
+## Example
+
+This is a basic example which shows you how to solve a common problem:
+
+```{r example}
+library(SSN)
+## basic example code
+```
+
+What is special about using `README.Rmd` instead of just `README.md`? You can include R chunks like so:
+
+```{r cars}
+summary(cars)
+```
+
+You'll still need to render `README.Rmd` regularly, to keep `README.md` up-to-date. `devtools::build_readme()` is handy for this.
+
+You can also embed plots, for example:
+
+```{r pressure, echo = FALSE}
+plot(pressure)
+```
+
+In that case, don't forget to commit and push the resulting figure files, so they display on GitHub and CRAN.
+
+
+```{r}
+# R/generatSSN.R
+
+extr_netattr <- function(mypath = "E:/diabetes0409/", phylo_list = c('aphy_diabetesmetross_resp.Rdata')) {
+  library(data.table)
+  library(dplyr)
+  library(igraph)
+  library(reshape2)
+  library(stringr)
+  library(tidyr)
+  
+  for (phylo_name in phylo_list) {
+    load(paste0(mypath, phylo_name))
+    
+    # 从文件名中提取 phylotxt
+    phylotxt <- str_extract(phylo_name, "aphy_[^_]+")
+    
+    filelist <- list.files(pattern = paste0('^', phylotxt, '.*txt_comselP.csv$'), mypath)
+    SSN_list <- list()
+    
+    for (file19 in filelist) {
+      filesplit <- str_split_fixed(file19, pattern = '_', n = 7)
+      G1 <- read.csv(paste0(mypath, file19))
+      G1$filename <- file19
+      G1$edges_OTU <- paste0(G1$index, ';.;', G1$variable)
+      SSN19add1 <- data.frame(reshape2::acast(data = G1, formula = samples ~ edges_OTU, value.var = 'value'), check.names = FALSE)
+      
+      group <- filesplit[1, 2]
+      samplename <- filesplit[1, 3]
+      topn <- filesplit[1, 4]
+      thre <- filesplit[1, 5]
+      
+      if (samplename %in% rownames(SSN19add1)) {
+        edgelist <- data.frame(SSN19add1[samplename, ], row.names = samplename, check.names = FALSE)
+        colnames(edgelist) <- colnames(SSN19add1)
+        SSN_list[[file19]] <- edgelist
+        edgelist <- data.frame(t(edgelist), check.names = FALSE) %>%
+          rownames_to_column(var = 'edges_OTU') %>%
+          separate(edges_OTU, into = c('V1', 'V2'), sep = ';.;')
+        edgelist <- edgelist[!is.na(edgelist[samplename]), ]
+        g <- graph_from_edgelist(as.matrix(edgelist[, c('V1', 'V2')]), directed = FALSE)
+        E(g)$weight <- unlist(edgelist[samplename])
+        E(g)$weight <- format(E(g)$weight, digits = 3)
+        write_graph(g, file = paste0(mypath, phylotxt, '_', group, '_', samplename, '_', thre, '_', topn, '_05.gml'), format = "gml")
+      } else {
+        print(paste0('No file', mypath, phylotxt, '_', group, '_', samplename, '_', thre, '_', topn, '_05.gml'))
+        G1 <- make_empty_graph(n = 0, directed = FALSE)
+        write_graph(G1, file = paste0(mypath, phylotxt, '_', group, '_', samplename, '_', thre, '_', topn, '_05.gml'), format = "gml")
+      }
+    }
+    
+    SSNall <- data.table::rbindlist(SSN_list, fill = TRUE, use.names = TRUE, idcol = 'samplename') %>%
+      melt(na.rm = TRUE)
+    write.csv(SSNall, paste0(mypath, phylotxt, "_comselSSN.csv"), row.names = FALSE)
+    
+    meta <- meta(ps.ng.tax)
+    meta2 <- meta
+    row.names(meta2) <- gsub(row.names(meta2), pattern = 'X', replacement = '')
+    meta <- rbind(meta, meta2)
+    
+    attrlist <- list()
+    for (file in list.files(mypath, paste0(phylotxt, '.*.gml$'))) {
+      G1 <- read_graph(paste0(mypath, file), format = "gml")
+      tryCatch({
+        E(G1)$weight <- abs(as.numeric(as.character(E(G1)$weight)))
+        G_frame <- as.data.frame(list(
+          mean(degree(G1)),
+          average.path.length(G1),
+          diameter(G1, unconnected = TRUE),
+          mean(betweenness(G1)),
+          mean(closeness(G1)),
+          length(E(G1)),
+          length(V(G1))
+        ))
+        colnames(G_frame) <- c('mean_degree', 'average_path', 'diameter', 'mean_betweenness', 'mean_closeness', 'edgenumber', 'nodenumber')
+        rownames(G_frame) <- file
+        attrlist[[file]] <- G_frame
+      }, error = function(error_message) {
+        message("Error is")
+        print(file)
+        attrlist[[file]] <- data.frame(mean_degree = 0, average_path = 0, diameter = 0, mean_betweenness = 0, mean_closeness = 0, edgenumber = 0, nodenumber = 0)
+        return(NA)
+      })
+    }
+    
+    attrtable <- dplyr::bind_rows(attrlist, .id = 'gml')
+    attrtable$samples <- str_split_fixed(rownames(attrtable), '_', 5)[, 3]
+    attrtable <- attrtable %>%
+      merge(meta, by.x = 'samples', by.y = 'row.names')
+    write.csv(attrtable, paste0(mypath, phylotxt, "_type_attrtable_metaSSN.csv"), row.names = TRUE)
+  }
+}
+
+# 创建 R 文件并写入 generatSSN 函数
+file.create("E:/Onedrive/labZhouc/Paper_Conc/Final0203V2/SSN_package/R/extr_netattr.R")
+writeLines(capture.output(dump("extr_netattr", file = ""), type = "output"), "R/extr_netattr.R")
+
+```
+
+```{r}
+# R/generatSSN.R
+
+variation_mat <- function(frame) {
+  x <- as.matrix(frame)
+  n <- nrow(x)
+  m <- ncol(x)
+  xx <- array(x, dim = c(n, m, m))
+  xx_t <- aperm(xx, c(1, 3, 2))
+  l <- log(xx / xx_t)
+  v_mat <- apply(l, c(2, 3), var, na.rm = TRUE)
+  return(v_mat)
+}
+
+basis_var <- function(var_mat, m, v_min = 1e-10) {
+  m_inv <- solve(m)
+  v_vec <- rowSums(var_mat)
+  v_base <- m_inv %*% v_vec
+  v_base[v_base <= 0] <- v_min
+  return(v_base)
+}
+
+per_sparcc <- function(frame, samplename) {
+  sample_table <- frame[frame$sample != samplename, ]
+  x <- as.matrix(sample_table)
+  sampleSize <- nrow(x)
+  nodeD <- ncol(x)
+  xx <- array(x, dim = c(sampleSize, nodeD, nodeD))
+  xx_t <- aperm(xx, c(1, 3, 2))
+  llog <- log(xx / xx_t)
+  X_mean <- apply(llog, c(2, 3), mean, na.rm = TRUE)
+  logdif <- (llog - X_mean) ^ 2
+  var_mat <- variation_mat(sample_table)
+  var_mat_temp <- var_mat
+  d <- nrow(var_mat)
+  m <- matrix(1, d, d) + diag(d - 2, d, d)
+  v_base <- basis_var(var_mat_temp, m)
+  v_base[v_base <= 0] <- min(v_base[v_base > 0])
+  vbase_multi <- array(v_base, dim = c(nodeD, nodeD))
+  vbase_multiS <- vbase_multi
+  vbase_multiT <- t(vbase_multi)
+  vbase_multiST <- sqrt(vbase_multiS) * sqrt(vbase_multiT)
+  cor_form <- (vbase_multiT + vbase_multiS - var_mat) / (2 * vbase_multiST)
+  cor_form <- as.data.frame(cor_form, colnames(sample_table), colnames(sample_table))
+  cor_form_path <- paste0(samplename, '_form.csv')
+  write.csv(cor_form, cor_form_path)
+  cor_matr <- cor_form
+  cor_matr[lower.tri(cor_matr)] <- 0
+  G <- graph_from_adjacency_matrix(as.matrix(cor_matr), weighted = TRUE, mode = "undirected")
+  cor_matr_gml_path <- paste0(samplename, "_cor2.gml")
+  write_graph(G, cor_matr_gml_path, format = "gml")
+  return(cor_form)
+}
+
+sampling_sparcc <- function(frame, samplename, iters = 1) {
+  cor_list <- list()
+  for (i in 1:iters) {
+    cor_sparse <- per_sparcc(frame, samplename)
+    cor_list[[i]] <- cor_sparse
+  }
+  cor_array <- abind::abind(cor_list, along = 3)
+  cor_med <- apply(cor_array, c(1, 2), median, na.rm = TRUE)
+  cor <- as.data.frame(cor_med)
+  return(cor)
+}
+
+permute_w_replacement <- function(frame) {
+  s <- nrow(frame)
+  perm <- frame[sample(1:s, size = s, replace = TRUE), ]
+  return(perm)
+}
+
+bootstrap_correlations <- function(df, cor, samplename, bootstraps = 10, procs = 1) {
+  abs_cor <- abs(cor)
+  n_sig <- matrix(0, nrow = nrow(abs_cor), ncol = ncol(abs_cor))
+  for (i in 1:bootstraps) {
+    bootstrap <- permute_w_replacement(df)
+    perm_cor <- sampling_sparcc(bootstrap, samplename)
+    n_sig <- n_sig + (abs(perm_cor) >= abs(cor))
+  }
+  p_vals <- n_sig / bootstraps
+  return(as.data.frame(p_vals))
+}
+
+generatSSN <- function(mypath = "E:/diabetes0409/", phylo_list = c('aphy_diabetesmetross_resp.Rdata')) {
+  for (phylo_name in phylo_list) {
+    load(paste0(mypath, phylo_name))
+    
+    phylotxt <- tools::file_path_sans_ext(basename(phylo_name))
+    
+    filelist <- list.files(pattern = paste0('^', phylotxt, '.*txt_comselP.csv$'), path = mypath)
+    SSN_list <- list()
+    
+    for (file19 in filelist) {
+      filesplit <- strsplit(file19, "_")[[1]]
+      G1 <- read.csv(paste0(mypath, file19))
+      G1$filename <- file19
+      G1$edges_OTU <- paste0(G1$index, ';.;', G1$variable)
+      SSN19add1 <- acast(G1, samples ~ edges_OTU, value.var = 'value')
+      
+      group <- filesplit[2]
+      samplename <- filesplit[3]
+      topn <- filesplit[4]
+      thre <- filesplit[5]
+      
+      if (samplename %in% rownames(SSN19add1)) {
+        edgelist <- data.frame(SSN19add1[samplename, ], row.names = samplename, check.names = FALSE)
+        colnames(edgelist) <- colnames(SSN19add1)
+        SSN_list[[file19]] <- edgelist
+        edgelist <- as.data.frame(t(edgelist), check.names = FALSE) %>%
+          rownames_to_column(var = 'edges_OTU') %>%
+          separate(edges_OTU, into = c('V1', 'V2'), sep = ';.;')
+        edgelist <- edgelist[!is.na(edgelist[samplename]), ]
+        g <- graph_from_edgelist(as.matrix(edgelist[, c('V1', 'V2')]), directed = FALSE)
+        E(g)$weight <- unlist(edgelist[samplename])
+        E(g)$weight <- format(E(g)$weight, digits = 3)
+        write_graph(g, file = paste0(mypath, phylotxt, '_', group, '_', samplename, '_', thre, '_', topn, '_05.gml'), format = "gml")
+      } else {
+        print(paste0('No file ', mypath, phylotxt, '_', group, '_', samplename, '_', thre, '_', topn, '_05.gml'))
+        G1 <- make_empty_graph(n = 0, directed = FALSE)
+        write_graph(G1, file = paste0(mypath, phylotxt, '_', group, '_', samplename, '_', thre, '_', topn, '_05.gml'), format = "gml")
+      }
+    }
+    
+    SSNall <- rbindlist(SSN_list, fill = TRUE, use.names = TRUE, idcol = 'samplename') %>%
+      melt(na.rm = TRUE)
+    write.csv(SSNall, paste0(mypath, phylotxt, "_comselSSN.csv"), row.names = FALSE)
+    
+    meta <- meta(ps.ng.tax)
+    meta2 <- meta
+    row.names(meta2) <- gsub('X', '', row.names(meta2))
+    meta <- rbind(meta, meta2)
+    
+    attrlist <- list()
+    for (file in list.files(path = mypath, pattern = paste0(phylotxt, '.*.gml$'))) {
+      G1 <- read_graph(paste0(mypath, file), format = "gml")
+      tryCatch({
+        E(G1)$weight <- abs(as.numeric(as.character(E(G1)$weight)))
+        G_frame <- data.frame(
+          mean_degree = mean(degree(G1)),
+          average_path = average.path.length(G1),
+          diameter = diameter(G1, unconnected = TRUE),
+          mean_betweenness = mean(betweenness(G1)),
+          mean_closeness = mean(closeness(G1)),
+          edgenumber = length(E(G1)),
+          nodenumber = length(V(G1))
+        )
+        rownames(G_frame) <- file
+        attrlist[[file]] <- G_frame
+      }, error = function(error_message) {
+        message("Error is")
+        print(file)
+        attrlist[[file]] <- data.frame(mean_degree = 0, average_path = 0, diameter = 0, mean_betweenness = 0, mean_closeness = 0, edgenumber = 0, nodenumber = 0)
+        return(NA)
+      })
+    }
+    
+    attrtable <- bind_rows(attrlist, .id = 'gml')
+    attrtable$samples <- str_split_fixed(rownames(attrtable), '_', 5)[, 3]
+    attrtable <- attrtable %>%
+      merge(meta, by.x = 'samples', by.y = 'row.names')
+    write.csv(attrtable, paste0(mypath, phylotxt, "_type_attrtable_metaSSN.csv"), row.names = TRUE)
+  }
+}
+
+# 创建 R 文件并写入 generatSSN 函数
+file.create("R/generatSSN.R")
+writeLines(capture.output(dump("generatSSN", file = ""), type = "output"), "R/generatSSN.R")
+
+```
+
+```{r}
+roxygen2::roxygenise()
+
+```
+
+```{r}
+install.packages(c("data.table", "dplyr", "igraph", "reshape2", "stringr", "tidyr","tidyverse"))
+library(data.table)
+library(dplyr)
+library(igraph)
+library(reshape2)
+library(stringr)
+library(tidyr)
+# 模拟数据输入
+# 模拟数据输入
+temp_dir <- 'C:/Users/WLPC/'#tempdir()
+
+# 创建模拟的 .Rdata 文件
+data <- phyloseq::otu_table(matrix(runif(100), nrow=10),taxa_are_rows = T)
+save(data, file = file.path(temp_dir, "aphy_test_resp.Rdata"))
+
+# 创建模拟的CSV文件
+write.csv(data.frame(index = 1:10, variable = runif(10), samples = 1:10, value = runif(10)),
+          file = file.path(temp_dir, "/aphy_test_resp1.txt_comselP.csv"))
+
+# 运行 generatSSN 函数
+generatSSN(mypath = temp_dir, phylo_list = c('aphy_test_resp.Rdata'))
+
+# 使用 extr_netattr 函数
+library(igraph)
+g <- make_ring(10)
+attributes <- extr_netattr(g)
+print(attributes)
+```
+
+```{r}
+library(data.table)
+library(dplyr)
+library(igraph)
+library(reshape2)
+library(stringr)
+library(tidyr)
+library(tidyverse)
+library(usethis)
+library(rmarkdown)
+
+# 创建 README.Rmd 文件
+usethis::use_readme_rmd()
+
+# 保存项目依赖关系快照
+renv::snapshot()
+```
+
